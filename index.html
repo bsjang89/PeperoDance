@@ -31,9 +31,13 @@
   button:focus-visible{outline:3px solid #fff;outline-offset:3px}
   .hint{font-size:14px;opacity:.75}
   .row{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
-  #editor{position:fixed;inset:0;display:none;align-items:center;justify-content:center;padding:16px;
+  #editor,#sharebox{position:fixed;inset:0;display:none;align-items:center;justify-content:center;padding:16px;
     background:rgba(60,5,12,.72);z-index:5}
-  #editor.on{display:flex}
+  #editor.on,#sharebox.on{display:flex}
+  #sharebox{display:none}
+  #link{width:100%;box-sizing:border-box;font:inherit;font-size:15px;padding:10px 12px;border-radius:12px;
+    border:2px solid #6d0e18;background:#fff;color:#6d0e18;margin:0 0 14px}
+  [hidden]{display:none!important}
   .panel{background:#fff3dc;color:#6d0e18;border-radius:22px;padding:18px 18px 22px;text-align:center;
     width:min(372px,100%);max-height:100%;overflow:auto;box-sizing:border-box}
   .panel h2{margin:0 0 10px;font-weight:400;font-size:22px}
@@ -54,6 +58,7 @@
 <div class="hud bottom">
   <div class="row">
     <button id="pick" type="button">사진 올리기</button>
+    <button id="share" type="button" hidden>공유 링크 만들기</button>
     <button id="music" type="button">♪ 음악 켜기</button>
   </div>
   <input id="file" type="file" accept="image/*" hidden>
@@ -71,12 +76,25 @@
     </div>
   </div>
 </div>
+<div id="sharebox" role="dialog" aria-modal="true" aria-labelledby="shh">
+  <div class="panel">
+    <h2 id="shh">내 빼빼로 댄스 공유</h2>
+    <p class="note" id="shnote">링크를 만들면 맞춰 둔 얼굴 사진이 서버에 저장되고,<br>링크를 아는 사람은 누구나 볼 수 있어요.</p>
+    <input id="link" type="text" readonly hidden aria-label="공유 링크">
+    <div class="row">
+      <button id="shclose" class="ghost" type="button">닫기</button>
+      <button id="shgo" type="button">링크 만들기</button>
+    </div>
+  </div>
+</div>
 <div id="err">3D 화면을 불러오지 못했어요. 다른 브라우저에서 다시 열어 주세요.</div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
 (function(){
 const FACE="";
+// Supabase: project URL + publishable(anon) key, and a public storage bucket for shared faces.
+const SB_URL="",SB_KEY="",SB_BUCKET="faces";
 const BPM=120, TAU=Math.PI*2;
 const canvas=document.getElementById('c');
 let renderer;
@@ -134,7 +152,12 @@ function commitFace(){ // side/back of the head take their colours from the pict
   c.strokeStyle='#2a1a12';c.lineWidth=11;c.lineCap='round';c.beginPath();c.arc(210,345,62,.2*Math.PI,.8*Math.PI);c.stroke();
   commitFace();
 })();
-if(FACE){const im=new Image();im.onload=function(){fctx.drawImage(im,0,0,FW,FH);commitFace();};im.src=FACE;}
+const sharedId=(function(){try{const d=new URLSearchParams(location.search).get('d');
+  return d&&/^[a-z0-9]{6,20}$/.test(d)?d:null;}catch(e){return null;}})();
+if(sharedId&&SB_URL){const im=new Image();im.crossOrigin='anonymous';
+  im.onload=function(){fctx.drawImage(im,0,0,FW,FH);commitFace();};
+  im.src=SB_URL+'/storage/v1/object/public/'+SB_BUCKET+'/'+sharedId+'.jpg';}
+else if(FACE){const im=new Image();im.onload=function(){fctx.drawImage(im,0,0,FW,FH);commitFace();};im.src=FACE;}
 function headMaterial(){
   return new THREE.ShaderMaterial({
     uniforms:headU,
@@ -358,8 +381,33 @@ ed.addEventListener('pointermove',e=>{
 ed.addEventListener('wheel',e=>{e.preventDefault();zoomEl.value=+zoomEl.value-Math.sign(e.deltaY)*4;redraw();},{passive:false});
 document.getElementById('cancel').addEventListener('click',closeEditor);
 document.getElementById('ok').addEventListener('click',()=>{
-  if(E.img){paint(fctx,FW,FH,false);commitFace();yaw=0;}
+  if(E.img){paint(fctx,FW,FH,false);commitFace();yaw=0;shared=null;linkEl.hidden=true;shGo.textContent='링크 만들기';if(SB_URL&&SB_KEY)shareBtn.hidden=false;}
   closeEditor();
+});
+
+// ---------- share link (face picture stored in Supabase Storage) ----------
+const shareBtn=document.getElementById('share'),shBox=document.getElementById('sharebox');
+const linkEl=document.getElementById('link'),shGo=document.getElementById('shgo'),shNote=document.getElementById('shnote');
+let shared=null;
+shareBtn.addEventListener('click',()=>{shBox.classList.add('on');});
+document.getElementById('shclose').addEventListener('click',()=>{shBox.classList.remove('on');});
+function copyLink(){
+  linkEl.focus();linkEl.select();
+  try{navigator.clipboard.writeText(linkEl.value).then(()=>{shGo.textContent='복사했어요!';},()=>{});}catch(e){}
+}
+shGo.addEventListener('click',()=>{
+  if(shared){copyLink();return;}
+  shGo.disabled=true;shGo.textContent='만드는 중…';
+  const id=Array.from(crypto.getRandomValues(new Uint8Array(12)),b=>(b%36).toString(36)).join('');
+  faceCv.toBlob(blob=>{
+    fetch(SB_URL+'/storage/v1/object/'+SB_BUCKET+'/'+id+'.jpg',{method:'POST',
+      headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,'Content-Type':'image/jpeg'},body:blob})
+    .then(r=>{if(!r.ok)throw new Error(r.status);
+      shared=location.origin+location.pathname+'?d='+id;
+      linkEl.value=shared;linkEl.hidden=false;shNote.textContent='이 링크를 보내면 내 얼굴로 춤추는 화면이 열려요.';
+      shGo.disabled=false;shGo.textContent='링크 복사';})
+    .catch(()=>{shGo.disabled=false;shGo.textContent='다시 시도';shNote.textContent='링크를 만들지 못했어요. 잠시 뒤 다시 시도해 주세요.';});
+  },'image/jpeg',.85);
 });
 
 // ---------- music (generated in the browser) ----------
