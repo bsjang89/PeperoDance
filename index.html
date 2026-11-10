@@ -97,7 +97,7 @@
 const FACE="";
 // Supabase: project URL + publishable(anon) key, and a public storage bucket for shared faces.
 const SB_URL="https://iplduhidlesygllpdpme.supabase.co",SB_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlwbGR1aGlkbGVzeWdsbHBkcG1lIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU1Njc1ODYsImV4cCI6MjEwMTE0MzU4Nn0.FXcLfQw6YVztouAOxIEbFUmobPkWBflL9PsQo84Hczs",SB_BUCKET="faces";
-const BPM=120, TAU=Math.PI*2;
+const BPM=126, TAU=Math.PI*2;
 const canvas=document.getElementById('c');
 let renderer;
 try{
@@ -524,35 +524,57 @@ const t0=performance.now();
 const beatNow=()=>(performance.now()-t0)/1000*BPM/60;
 let ac=null,master=null,noise=null,playing=false,timer=null,nextN=0;
 const btn=document.getElementById('music');
-const CH=[[261.6,329.6,392,523.3],[220,261.6,329.6,440],[174.6,220,261.6,349.2],[196,246.9,293.7,392]];
-const CH2=[[220,261.6,329.6,440],[174.6,220,261.6,349.2],[146.8,174.6,220,293.7],[164.8,207.7,246.9,329.6]];
-const ARP=[0,2,1,2,3,2,1,2];
-function tone(f,t,dur,type,vol){
+let duck=null;
+const mf=m=>440*Math.pow(2,(m-69)/12);
+// two songs, 4-bar loops; 0 in a lead line is a rest
+const SONGS={
+  fun:{roots:[48,43,45,41],chords:[[60,64,67],[59,62,67],[60,64,69],[60,65,69]],
+    lead:[[76,0,79,84,0,79,81,79],[74,0,79,83,0,79,81,83],[72,0,76,81,0,84,81,76],[77,81,84,81,79,77,76,74]],
+    stab:[2,6,10,14],bass:'disco',leadType:'square'},
+  idol:{roots:[45,41,48,40],chords:[[57,60,64],[57,60,65],[55,60,64],[56,59,64]],
+    lead:[[81,0,76,81,0,84,83,81],[81,0,77,81,0,84,83,81],[79,0,76,79,0,84,83,79],[80,0,76,80,83,0,80,76]],
+    stab:[0,3,6,10,12],bass:'sync',leadType:'sawtooth'}
+};
+function tone(dest,f,t,dur,type,vol,cut){
   const o=ac.createOscillator(),g=ac.createGain();o.type=type;o.frequency.value=f;
-  g.gain.setValueAtTime(vol,t);g.gain.exponentialRampToValueAtTime(.001,t+dur);
-  o.connect(g);g.connect(master);o.start(t);o.stop(t+dur+.02);
+  g.gain.setValueAtTime(.0001,t);g.gain.linearRampToValueAtTime(vol,t+.006);g.gain.exponentialRampToValueAtTime(.001,t+dur);
+  let last=o;
+  if(cut){const fl=ac.createBiquadFilter();fl.type='lowpass';fl.frequency.setValueAtTime(cut,t);
+    fl.frequency.exponentialRampToValueAtTime(Math.max(200,cut*.3),t+dur);o.connect(fl);last=fl;}
+  last.connect(g);g.connect(dest);o.start(t);o.stop(t+dur+.03);
 }
-function hit(t,dur,vol,hp){
+function hit(t,dur,vol,type,freq){
   const s=ac.createBufferSource(),g=ac.createGain(),f=ac.createBiquadFilter();
-  s.buffer=noise;f.type='highpass';f.frequency.value=hp;
+  s.buffer=noise;f.type=type;f.frequency.value=freq;
   g.gain.setValueAtTime(vol,t);g.gain.exponentialRampToValueAtTime(.001,t+dur);
   s.connect(f);f.connect(g);g.connect(master);s.start(t);s.stop(t+dur+.02);
 }
-function step(n,t){
-  const s=n%8,ch=(mode==='idol'?CH2:CH)[Math.floor(n/8)%4];
-  if(n%2===0){ // kick
-    const o=ac.createOscillator(),g=ac.createGain();o.frequency.setValueAtTime(150,t);
-    o.frequency.exponentialRampToValueAtTime(45,t+.12);g.gain.setValueAtTime(.9,t);
-    g.gain.exponentialRampToValueAtTime(.001,t+.22);o.connect(g);g.connect(master);o.start(t);o.stop(t+.25);
-  }else hit(t,.05,.18,7000);
-  if(n%4===2)hit(t,.14,.35,1500);
-  if(s===0||s===3||s===6)tone(ch[0]/2,t,.28,'triangle',.5);
-  tone(ch[ARP[s]]*2,t,.2,mode==='idol'?'sawtooth':'square',mode==='idol'?.05:.07);
+function step(n,t){ // n counts 16th notes
+  const s=n%16,bar=Math.floor(n/16),song=SONGS[mode],ci=bar%4,root=song.roots[ci];
+  if(s%4===0){ // four-on-the-floor kick, and it ducks the bass and chords so the beat pumps
+    const o=ac.createOscillator(),g=ac.createGain();o.frequency.setValueAtTime(165,t);
+    o.frequency.exponentialRampToValueAtTime(45,t+.11);g.gain.setValueAtTime(1,t);
+    g.gain.exponentialRampToValueAtTime(.001,t+.24);o.connect(g);g.connect(master);o.start(t);o.stop(t+.27);
+    duck.gain.cancelScheduledValues(t);duck.gain.setValueAtTime(.3,t);duck.gain.linearRampToValueAtTime(1,t+.2);
+  }
+  if(s===4||s===12){hit(t,.17,.42,'bandpass',1800);hit(t+.012,.1,.25,'bandpass',2600);}
+  hit(t,.03,s%2?.05:.1,'highpass',8000);
+  if(s%4===2)hit(t,.14,.13,'highpass',6500);
+  if(bar%2===0&&s===0)hit(t,.9,.2,'highpass',5000);              // crash where the dance move changes
+  if(bar%2===1&&s>=12)hit(t,.06,.14+.06*(s-12),'bandpass',2200);  // snare roll into the next move
+  if(song.bass==='disco'){
+    if(s%4===0)tone(duck,mf(root),t,.13,'sawtooth',.34,700);
+    else if(s%4===2)tone(duck,mf(root+12),t,.17,'sawtooth',.3,900);
+    else if(s===15)tone(duck,mf(root+7),t,.1,'sawtooth',.22,900);
+  }else if([0,3,6,8,11,14].indexOf(s)>=0)tone(duck,mf(root),t,.17,'square',.26,520);
+  if(song.stab.indexOf(s)>=0)song.chords[ci].forEach(m=>{tone(duck,mf(m),t,.15,'sawtooth',.05,2600);tone(duck,mf(m+12),t,.12,'sawtooth',.025,3200);});
+  if(s%2===0){const m=song.lead[ci][s/2];
+    if(m){tone(master,mf(m),t,.22,song.leadType,.05,5200);tone(master,mf(m)*1.007,t,.22,song.leadType,.032,5200);}}
 }
 function sched(){
   const nb=beatNow();
-  while(nextN/2<nb+.4){
-    const at=ac.currentTime+(nextN/2-nb)*60/BPM;
+  while(nextN/4<nb+.4){
+    const at=ac.currentTime+(nextN/4-nb)*60/BPM;
     if(at>ac.currentTime)step(nextN,at);
     nextN++;
   }
@@ -561,12 +583,14 @@ btn.addEventListener('click',()=>{
   try{
     if(!ac){
       ac=new (window.AudioContext||window.webkitAudioContext)();
-      master=ac.createGain();master.gain.value=.5;master.connect(ac.destination);
-      noise=ac.createBuffer(1,ac.sampleRate*.3,ac.sampleRate);
+      const comp=ac.createDynamicsCompressor();comp.connect(ac.destination);
+      master=ac.createGain();master.gain.value=.6;master.connect(comp);
+      duck=ac.createGain();duck.connect(master);
+      noise=ac.createBuffer(1,ac.sampleRate,ac.sampleRate);
       const d=noise.getChannelData(0);for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1;
     }
     if(playing){clearInterval(timer);ac.suspend();playing=false;btn.textContent='♪ 음악 켜기';}
-    else{ac.resume();nextN=Math.ceil(beatNow()*2);timer=setInterval(sched,40);playing=true;btn.textContent='■ 음악 끄기';}
+    else{ac.resume();nextN=Math.ceil(beatNow()*4);timer=setInterval(sched,40);playing=true;btn.textContent='■ 음악 끄기';}
   }catch(e){btn.textContent='이 브라우저에서는 음악을 틀 수 없어요';btn.disabled=true;}
 });
 
