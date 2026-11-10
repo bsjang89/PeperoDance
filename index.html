@@ -30,6 +30,7 @@
   button:active{transform:translateY(3px);box-shadow:0 2px 0 #6d0e18}
   button:focus-visible{outline:3px solid #fff;outline-offset:3px}
   .hint{font-size:14px;opacity:.75;max-width:92vw;line-height:1.45}
+  .hint:empty{display:none}
   body.power{background:radial-gradient(ellipse at 50% 38%,#ffc45a 0%,#ff6a3d 40%,#a3154b 100%)}
   body.idol{background:radial-gradient(ellipse at 50% 35%,#7a3fb0 0%,#2b1458 42%,#0a0618 100%)}
   .row{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
@@ -67,7 +68,7 @@
   </div>
   <input id="file" type="file" accept="image/*" hidden>
   <input id="sfile" type="file" accept="audio/*,.wav,.mp3,.m4a,.ogg,.flac" hidden>
-  <div class="hint">사진과 노래를 넣으면 그 노래에 맞춰 춤춰요<br>드래그로 돌리고, 휠·두 손가락으로 확대</div>
+  <div class="hint"></div>
 </div>
 <div id="editor" role="dialog" aria-modal="true" aria-labelledby="edh">
   <div class="panel">
@@ -992,7 +993,7 @@ sfile.addEventListener('change',()=>{
   f.arrayBuffer().then(ab=>loadSong(ab,true)).then(()=>{
     busyEl.classList.remove('on');busyEl.textContent='얼굴 찾는 중…';
     try{playSong();}catch(e){}
-    hintEl.textContent='소리가 안 나면 "음악 켜기"를 눌러 주세요';
+    hintEl.textContent='';
   }).catch(()=>{busyEl.classList.remove('on');busyEl.textContent='얼굴 찾는 중…';hintEl.textContent='이 파일은 재생할 수 없어요. mp3나 wav 파일로 해 주세요.';});
 });
 function loadDefaultSong(){
@@ -1000,10 +1001,10 @@ function loadDefaultSong(){
   const get=DEFAULT_SONG.indexOf('data:')===0
     ?new Promise(res=>{const b=atob(DEFAULT_SONG.slice(DEFAULT_SONG.indexOf(',')+1)),u=new Uint8Array(b.length);for(let i=0;i<b.length;i++)u[i]=b.charCodeAt(i);res(u.buffer);})
     :fetch(DEFAULT_SONG).then(r=>{if(!r.ok)throw new Error(r.status);return r.arrayBuffer();});
-  get.then(ab=>loadSong(ab,false)).then(()=>{hintEl.innerHTML='"음악 켜기"를 누르면 노래가 나와요<br>드래그로 돌리고, 휠·두 손가락으로 확대';}).catch(()=>{});
+  get.then(ab=>loadSong(ab,false)).catch(()=>{});
 }
 kv('readonly').then(ab=>{
-  if(ab&&ab.byteLength)loadSong(ab,false).then(()=>{hintEl.textContent='"음악 켜기"를 누르면 저장해 둔 노래에 맞춰 춤춰요';}).catch(loadDefaultSong);
+  if(ab&&ab.byteLength)loadSong(ab,false).catch(loadDefaultSong);
   else loadDefaultSong();
 }).catch(loadDefaultSong);
 btn.addEventListener('click',()=>{
