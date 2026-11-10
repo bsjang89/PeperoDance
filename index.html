@@ -86,7 +86,7 @@
 <div id="sharebox" role="dialog" aria-modal="true" aria-labelledby="shh">
   <div class="panel">
     <h2 id="shh">내 빼빼로 댄스 공유</h2>
-    <p class="note" id="shnote">링크를 만들면 맞춰 둔 얼굴 사진이 서버에 저장되고,<br>링크를 아는 사람은 누구나 볼 수 있어요.</p>
+    <p class="note" id="shnote">링크를 만들면 얼굴 사진이 11월 11일 24시까지 서버에 저장되고,<br>그 이후에는 삭제돼요. 그동안 링크를 아는 사람은 누구나 볼 수 있어요.</p>
     <input id="link" type="text" readonly hidden aria-label="공유 링크">
     <div class="row">
       <button id="shclose" class="ghost" type="button">닫기</button>
@@ -808,7 +808,7 @@ shGo.addEventListener('click',()=>{
     if(f3)jobs.push(up(id+'.json',JSON.stringify({v:2,q:Array.from(f3.q,x=>Math.round(x*1e4)/1e4)}),'application/json'));
     Promise.all(jobs).then(()=>{
       shared=location.origin+location.pathname+'?d='+id+(f3?'&f=3':'');
-      linkEl.value=shared;linkEl.hidden=false;shNote.textContent='이 링크를 보내면 내 얼굴로 춤추는 화면이 열려요.';
+      linkEl.value=shared;linkEl.hidden=false;shNote.textContent='이 링크를 보내면 내 얼굴로 춤추는 화면이 열려요. 11월 11일 24시까지 열리고, 그 이후에는 삭제돼요.';
       shGo.disabled=false;shGo.textContent='링크 복사';})
     .catch(()=>{shGo.disabled=false;shGo.textContent='다시 시도';shNote.textContent='링크를 만들지 못했어요. 잠시 뒤 다시 시도해 주세요.';});
   },'image/jpeg',f3?.8:.85);
