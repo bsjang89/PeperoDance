@@ -30,6 +30,7 @@
   button:active{transform:translateY(3px);box-shadow:0 2px 0 #6d0e18}
   button:focus-visible{outline:3px solid #fff;outline-offset:3px}
   .hint{font-size:14px;opacity:.75}
+  body.power{background:radial-gradient(ellipse at 50% 38%,#ffc45a 0%,#ff6a3d 40%,#a3154b 100%)}
   body.idol{background:radial-gradient(ellipse at 50% 35%,#7a3fb0 0%,#2b1458 42%,#0a0618 100%)}
   .row{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
   #editor,#sharebox{position:fixed;inset:0;display:none;align-items:center;justify-content:center;padding:16px;
@@ -97,7 +98,7 @@
 const FACE="";
 // Supabase: project URL + publishable(anon) key, and a public storage bucket for shared faces.
 const SB_URL="https://iplduhidlesygllpdpme.supabase.co",SB_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlwbGR1aGlkbGVzeWdsbHBkcG1lIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU1Njc1ODYsImV4cCI6MjEwMTE0MzU4Nn0.FXcLfQw6YVztouAOxIEbFUmobPkWBflL9PsQo84Hczs",SB_BUCKET="faces";
-const BPM=126, TAU=Math.PI*2;
+const TEMPO={fun:126,idol:126,power:140}, TAU=Math.PI*2;
 const canvas=document.getElementById('c');
 let renderer;
 try{
@@ -131,13 +132,15 @@ const glowA=new THREE.PointLight(0xff4fd8,0,30),glowB=new THREE.PointLight(0x39c
 scene.add(glowA);scene.add(glowB);
 const hemi=scene.children.find(o=>o.isHemisphereLight);
 function setMode(m){
-  mode=m==='idol'?'idol':'fun';
-  document.body.classList.toggle('idol',mode==='idol');
-  floor.material.color.setHex(mode==='idol'?0x3a2466:0xd9434c);
+  const prev=mode;
+  mode=m==='idol'||m==='power'?m:'fun';
+  if(typeof retime==='function'&&prev!==mode)retime();
+  document.body.classList.toggle('idol',mode==='idol');document.body.classList.toggle('power',mode==='power');
+  floor.material.color.setHex({fun:0xd9434c,idol:0x3a2466,power:0xff8f3a}[mode]);
   ring.material.color.setHex(mode==='idol'?0xff7fe0:0xfff3dc);
   hemi.intensity=mode==='idol'?.5:.8;
   glowA.intensity=glowB.intensity=mode==='idol'?1.1:0;
-  const mb=document.getElementById('mode');if(mb)mb.textContent=mode==='idol'?'춤: 아이돌':'춤: 신나게';
+  const mb=document.getElementById('mode');if(mb)mb.textContent={fun:'춤: 신나게',idol:'춤: 아이돌',power:'춤: 파워'}[mode];
 }
 
 // ---------- face texture + head material ----------
@@ -269,7 +272,7 @@ function makePepero(o){
 // ---------- choreography ----------
 const sin=Math.sin,cos=Math.cos,PI=Math.PI;
 const base=()=>({squat:0,x:0,rotY:0,leanZ:0,leanX:0,waveA:0,wavePh:0,hx:0,hy:0,hz:0,
-  aLz:.3,aLx:0,eL:.2,eLx:0,aRz:.3,aRx:0,eR:.2,eRx:0,waveX:0,liftL:0,liftR:0});
+  aLz:.3,aLx:0,eL:.2,eLx:0,aRz:.3,aRx:0,eR:.2,eRx:0,waveX:0,spread:0,liftL:0,liftR:0});
 const ease=x=>x<0?0:x>1?1:x*x*(3-2*x);
 const moves=[
   function disco(b){const p=base(),s=.5+.5*Math.tanh(4*sin(b*PI));
@@ -343,7 +346,34 @@ const kFinal=keyed([
   P({L:[2.2,0,.15,0],R:[2.2,0,.15,0],squat:-.1}),
   P({L:[.3,.8,0,1.6],R:[.3,.8,0,1.6],squat:.3,hx:.35}),
   P(FIN),P(FIN),P(FIN),P(FIN)]);
-const DANCES={fun:moves,idol:[kPoint,kRoll,kTut,kSpin,kFinal]};
+// --- power set: jumps, running steps, hops, spins, jumping jacks ---
+function arms(p,L,R){p.aLz=L[0];p.aLx=L[1];p.eL=L[2];p.eLx=L[3];p.aRz=R[0];p.aRx=R[1];p.eR=R[2];p.eRx=R[3];}
+const mixA=(a,b,w)=>a.map((v,i)=>v+(b[i]-v)*w);
+const PUMP=[2.3,0,.1,0],TUCK=[.6,.6,0,1.5];
+function wJump(b){const p=base(),j=Math.abs(sin(b*PI)),s=.5+.5*Math.tanh(4*sin(b*PI));
+  p.squat=.1-.4*j;arms(p,mixA(TUCK,PUMP,s),mixA(PUMP,TUCK,s));
+  p.liftL=.3*j*s;p.liftR=.3*j*(1-s);p.hz=.4*(s-.5);p.rotY=.5*(s-.5);return p;}
+function wRun(b){const p=base(),ph=b*TAU,r=sin(ph);
+  p.liftL=.42*Math.max(0,r);p.liftR=.42*Math.max(0,-r);
+  arms(p,[.25,.2-r,0,1.4],[.25,.2+r,0,1.4]);
+  p.leanX=.22;p.squat=.1+.04*cos(2*ph);p.x=.5*sin(b*PI/4);p.rotY=.35*cos(b*PI/4);p.hy=-.3*cos(b*PI/4);return p;}
+function wHop(b){const p=base(),s=Math.tanh(3*sin(b*PI/2)),d=Math.min(b%2,2-b%2),hop=Math.exp(-d*d/.06);
+  p.x=.85*s;p.squat=.1-.35*hop;p.leanZ=-.3*s;p.hz=.25*s;
+  const e=.2+.3*Math.abs(sin(b*PI));arms(p,[2+.3*s,0,e,0],[2-.3*s,0,e,0]);return p;}
+function wTwist(b){const p=base();
+  if(b<4){const s=Math.tanh(3*sin(b*PI));p.rotY=.85*Math.tanh(2.5*sin(b*PI));p.squat=.12+.06*cos(b*TAU);
+    arms(p,[1.57,0,1.5*s,0],[1.57,0,-1.5*s,0]);
+    p.liftL=.2*Math.max(0,sin(b*PI));p.liftR=.2*Math.max(0,-sin(b*PI));}
+  else if(b<7){p.rotY=2*TAU*ease((b-4)/3);p.squat=.05;arms(p,[2.2,0,.15,0],[2.2,0,.15,0]);}
+  else{p.squat=.26;arms(p,[1.1,0,-.3,0],[1.1,0,-.3,0]);p.hx=.25;}
+  return p;}
+function wJack(b){const p=base();
+  if(b<6){const j=.5-.5*cos(b*TAU);p.spread=.5*j;p.squat=.08-.26*j;
+    arms(p,[.35+1.9*j,0,.1,0],[.35+1.9*j,0,.1,0]);}
+  else{const j=b<7?sin((b-6)*PI):0;p.squat=.05-.5*j;p.spread=.35;p.hz=.15;
+    arms(p,[2.2,0,.15,0],[2.2,0,.15,0]);}
+  return p;}
+const DANCES={fun:moves,idol:[kPoint,kRoll,kTut,kSpin,kFinal],power:[wJump,wRun,wHop,wTwist,wJack]};
 let mode='fun';
 // face: smile, blink/wink, open mouth, eyebrows — follows the choreography
 function exprAt(B){
@@ -355,6 +385,12 @@ function exprAt(B){
     if(k===4&&b>=6.6){e.smile=1;e.brow=.2;}
     if(k===3&&b>=6&&b<7){e.open=1;e.brow=1;}
     if((k===2&&b>=5&&b<7.2)||(k===4&&b>=5))e.close=1;
+  }else if(mode==='power'){
+    e.smile=.7+.3*beat;e.brow=.3;
+    if(k===0)e.open=.6*Math.abs(sin(b*PI));
+    if(k===3&&b>=4&&b<7){e.open=.85;e.brow=.9;e.smile=.2;}
+    if(k===4&&b>=6&&b<7){e.open=1;e.brow=1;e.smile=.2;}
+    if(k===4&&b>=7){e.smile=1;e.br=1;e.close=1;}
   }else{
     e.smile=.45+.55*beat;
     if(k===1){e.brow=.6*sin(b*PI);}
@@ -384,7 +420,7 @@ function apply(c,p){
   c.legs.forEach((l,i)=>{
     const h=(2*LL-Math.max(p.squat,0)-lift[i])/(2*LL);
     const th=Math.acos(Math.min(1,Math.max(.3,h)));
-    l.hip.rotation.x=-th;l.kn.rotation.x=2*th;
+    l.hip.rotation.x=-th;l.hip.rotation.z=l.side*p.spread;l.kn.rotation.x=2*th;
   });
 }
 
@@ -493,7 +529,7 @@ document.getElementById('ok').addEventListener('click',()=>{
 });
 
 // ---------- share link (face picture stored in Supabase Storage) ----------
-document.getElementById('mode').addEventListener('click',()=>{setMode(mode==='idol'?'fun':'idol');
+document.getElementById('mode').addEventListener('click',()=>{setMode({fun:'idol',idol:'power',power:'fun'}[mode]);
   if(shared){shared=null;linkEl.hidden=true;shGo.textContent='링크 만들기';}});
 const shareBtn=document.getElementById('share'),shBox=document.getElementById('sharebox');
 const linkEl=document.getElementById('link'),shGo=document.getElementById('shgo'),shNote=document.getElementById('shnote');
@@ -512,7 +548,7 @@ shGo.addEventListener('click',()=>{
     fetch(SB_URL+'/storage/v1/object/'+SB_BUCKET+'/'+id+'.jpg',{method:'POST',
       headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY,'Content-Type':'image/jpeg'},body:blob})
     .then(r=>{if(!r.ok)throw new Error(r.status);
-      shared=location.origin+location.pathname+'?d='+id+(mode==='idol'?'&m=idol':'');
+      shared=location.origin+location.pathname+'?d='+id+(mode!=='fun'?'&m='+mode:'');
       linkEl.value=shared;linkEl.hidden=false;shNote.textContent='이 링크를 보내면 내 얼굴로 춤추는 화면이 열려요.';
       shGo.disabled=false;shGo.textContent='링크 복사';})
     .catch(()=>{shGo.disabled=false;shGo.textContent='다시 시도';shNote.textContent='링크를 만들지 못했어요. 잠시 뒤 다시 시도해 주세요.';});
@@ -521,8 +557,14 @@ shGo.addEventListener('click',()=>{
 
 // ---------- music (generated in the browser) ----------
 const t0=performance.now();
-const beatNow=()=>(performance.now()-t0)/1000*BPM/60;
-let ac=null,master=null,noise=null,playing=false,timer=null,nextN=0;
+let beat0=0,tRef=t0,nextN=0;
+const beatNow=()=>beat0+(performance.now()-tRef)/1000*TEMPO[mode]/60;
+function retime(){ // keep the beat position when the tempo changes with the dance
+  const now=performance.now();beat0=beat0+(now-tRef)/1000*TEMPO[prevTempoMode]/60;tRef=now;prevTempoMode=mode;
+  nextN=Math.ceil(beat0*4);
+}
+let prevTempoMode='fun';
+let ac=null,master=null,noise=null,playing=false,timer=null;
 const btn=document.getElementById('music');
 let duck=null;
 const mf=m=>440*Math.pow(2,(m-69)/12);
@@ -533,7 +575,10 @@ const SONGS={
     stab:[2,6,10,14],bass:'disco',leadType:'square'},
   idol:{roots:[45,41,48,40],chords:[[57,60,64],[57,60,65],[55,60,64],[56,59,64]],
     lead:[[81,0,76,81,0,84,83,81],[81,0,77,81,0,84,83,81],[79,0,76,79,0,84,83,79],[80,0,76,80,83,0,80,76]],
-    stab:[0,3,6,10,12],bass:'sync',leadType:'sawtooth'}
+    stab:[0,3,6,10,12],bass:'sync',leadType:'sawtooth'},
+  power:{roots:[40,47,49,45],chords:[[64,68,71],[63,66,71],[64,68,73],[64,69,73]],
+    lead:[[76,76,80,83,0,83,80,83],[75,75,78,83,0,83,78,83],[76,76,80,85,0,85,83,80],[81,80,76,80,81,83,85,88]],
+    stab:[0,3,6,8,11,14],bass:'drive',leadType:'square'}
 };
 function tone(dest,f,t,dur,type,vol,cut){
   const o=ac.createOscillator(),g=ac.createGain();o.type=type;o.frequency.value=f;
@@ -566,6 +611,9 @@ function step(n,t){ // n counts 16th notes
     if(s%4===0)tone(duck,mf(root),t,.13,'sawtooth',.34,700);
     else if(s%4===2)tone(duck,mf(root+12),t,.17,'sawtooth',.3,900);
     else if(s===15)tone(duck,mf(root+7),t,.1,'sawtooth',.22,900);
+  }else if(song.bass==='drive'){
+    if(s%2===0)tone(duck,mf(root+(s%4?12:0)),t,.11,'sawtooth',.3,850);
+    if(s%4===0&&bar%2===1)hit(t,.12,.2,'bandpass',1500); // extra claps on every beat to build
   }else if([0,3,6,8,11,14].indexOf(s)>=0)tone(duck,mf(root),t,.17,'square',.26,520);
   if(song.stab.indexOf(s)>=0)song.chords[ci].forEach(m=>{tone(duck,mf(m),t,.15,'sawtooth',.05,2600);tone(duck,mf(m+12),t,.12,'sawtooth',.025,3200);});
   if(s%2===0){const m=song.lead[ci][s/2];
@@ -574,7 +622,7 @@ function step(n,t){ // n counts 16th notes
 function sched(){
   const nb=beatNow();
   while(nextN/4<nb+.4){
-    const at=ac.currentTime+(nextN/4-nb)*60/BPM;
+    const at=ac.currentTime+(nextN/4-nb)*60/TEMPO[mode];
     if(at>ac.currentTime)step(nextN,at);
     nextN++;
   }
@@ -600,7 +648,7 @@ const hp=new THREE.Vector3(),look=new THREE.Vector3();
 const frozen=(function(){const m=/^#beat=([\d.]+)$/.exec(location.hash);return m?+m[1]:null;})();
 const E0={smile:0,bl:0,br:0,open:0,brow:0,close:0};
 function frame(){
-  const B=frozen!==null?frozen:beatNow(),t=B*60/BPM;
+  const B=frozen!==null?frozen:beatNow(),t=frozen!==null?frozen/2:(performance.now()-t0)/1000;
   apply(star,poseAt(B));
   backs.forEach(d=>apply(d.c,poseAt(B+d.off)));
   const e=exprAt(B),kf=frozen!==null?1:.28;
