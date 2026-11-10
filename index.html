@@ -7,7 +7,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Jua&display=swap" rel="stylesheet">
 <style>
   html,body{margin:0;height:100%;overflow:hidden;background:#8f1420;}
-  body{
+  body{transition:background 1s;
     font-family:'Jua','Apple SD Gothic Neo','Malgun Gothic',sans-serif;color:#fff3dc;
     background:radial-gradient(ellipse at 50% 38%,#f0535c 0%,#d42f3a 38%,#8f1420 100%);
     -webkit-user-select:none;user-select:none;
@@ -29,7 +29,7 @@
   }
   button:active{transform:translateY(3px);box-shadow:0 2px 0 #6d0e18}
   button:focus-visible{outline:3px solid #fff;outline-offset:3px}
-  .hint{font-size:14px;opacity:.75}
+  .hint{font-size:14px;opacity:.75;max-width:92vw;line-height:1.45}
   body.power{background:radial-gradient(ellipse at 50% 38%,#ffc45a 0%,#ff6a3d 40%,#a3154b 100%)}
   body.idol{background:radial-gradient(ellipse at 50% 35%,#7a3fb0 0%,#2b1458 42%,#0a0618 100%)}
   .row{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
@@ -61,12 +61,13 @@
 <div class="hud bottom">
   <div class="row">
     <button id="pick" type="button">사진 올리기</button>
-    <button id="mode" type="button">춤: 신나게</button>
+    <button id="pickSong" type="button">노래 넣기</button>
     <button id="share" type="button" hidden>공유 링크 만들기</button>
     <button id="music" type="button">♪ 음악 켜기</button>
   </div>
   <input id="file" type="file" accept="image/*" hidden>
-  <div class="hint">사진을 올리면 내 얼굴로 춤춰요 · 드래그로 돌리고 휠·두 손가락으로 확대</div>
+  <input id="sfile" type="file" accept="audio/*,.wav,.mp3,.m4a,.ogg,.flac" hidden>
+  <div class="hint">사진과 노래를 넣으면 그 노래에 맞춰 춤춰요<br>드래그로 돌리고, 휠·두 손가락으로 확대</div>
 </div>
 <div id="editor" role="dialog" aria-modal="true" aria-labelledby="edh">
   <div class="panel">
@@ -101,7 +102,7 @@ const FACE="";
 const FACE3D=null;
 // Supabase: project URL + publishable(anon) key, and a public storage bucket for shared faces.
 const SB_URL="https://iplduhidlesygllpdpme.supabase.co",SB_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlwbGR1aGlkbGVzeWdsbHBkcG1lIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU1Njc1ODYsImV4cCI6MjEwMTE0MzU4Nn0.FXcLfQw6YVztouAOxIEbFUmobPkWBflL9PsQo84Hczs",SB_BUCKET="faces";
-const TEMPO={fun:126,idol:126,power:140}, TAU=Math.PI*2;
+const SYN_BPM=126, TAU=Math.PI*2;
 const canvas=document.getElementById('c');
 let renderer;
 try{
@@ -134,16 +135,13 @@ ring.rotation.x=-Math.PI/2;ring.position.y=.01;scene.add(ring);
 const glowA=new THREE.PointLight(0xff4fd8,0,30),glowB=new THREE.PointLight(0x39c6ff,0,30);
 scene.add(glowA);scene.add(glowB);
 const hemi=scene.children.find(o=>o.isHemisphereLight);
-function setMode(m){
-  const prev=mode;
-  mode=m==='idol'||m==='power'?m:'fun';
-  if(typeof retime==='function'&&prev!==mode)retime();
-  document.body.classList.toggle('idol',mode==='idol');document.body.classList.toggle('power',mode==='power');
-  floor.material.color.setHex({fun:0xd9434c,idol:0x3a2466,power:0xff8f3a}[mode]);
-  ring.material.color.setHex(mode==='idol'?0xff7fe0:0xfff3dc);
-  hemi.intensity=mode==='idol'?.5:.8;
-  glowA.intensity=glowB.intensity=mode==='idol'?1.1:0;
-  const mb=document.getElementById('mode');if(mb)mb.textContent={fun:'춤: 신나게',idol:'춤: 아이돌',power:'춤: 파워'}[mode];
+let theme=-1;
+function setTheme(lv){ // 0 calm, 1 medium, 2 wild
+  if(lv===theme)return;theme=lv;
+  document.body.classList.toggle('idol',lv===0);document.body.classList.toggle('power',lv===2);
+  floor.material.color.setHex([0x3a2466,0xd9434c,0xff8f3a][lv]);
+  ring.material.color.setHex(lv===0?0xff7fe0:0xfff3dc);
+  hemi.intensity=lv===0?.5:.8;glowA.intensity=glowB.intensity=lv===0?1.1:0;
 }
 
 // ---------- face texture + head material ----------
@@ -377,50 +375,38 @@ function wJack(b){const p=base();
   else{const j=b<7?sin((b-6)*PI):0;p.squat=.05-.5*j;p.spread=.35;p.hz=.15;
     arms(p,[2.2,0,.15,0],[2.2,0,.15,0]);}
   return p;}
-const DANCES={fun:moves,idol:[kPoint,kRoll,kTut,kSpin,kFinal],power:[wJump,wRun,wHop,wTwist,wJack]};
-let mode='fun';
-// face: expression channels follow the choreography
+const POOL=[[moves[1],kRoll,moves[3]],[moves[0],moves[2],kPoint,kTut],[wJump,wRun,wHop,kSpin,wTwist,moves[4],wJack]];
+const SYN_LEV=[1,1,0,1,2,2,1,2];
+const pmod=(a,n)=>((a%n)+n)%n;
+function levelAt(p){return song?song.lev[pmod(p,song.lev.length)]:SYN_LEV[pmod(p,8)];}
+function moveAt(p){
+  if(song&&pmod(p,song.nPhr)===song.nPhr-1&&song.nPhr>3)return kFinal;
+  const pool=POOL[levelAt(p)];return pool[pmod(p*7+3,pool.length)];
+}
+// face: mood from the energy of the phrase, mouth from the singing voice
 const CHK=['smile','open','bl','br','browUp','browDn','pucker','sad','squint','wide','close'];
 function exprAt(B){
-  const k=Math.floor(B/8)%5,b=B%8,beat=Math.exp(-(B%1)*4),e={};CHK.forEach(n=>e[n]=0);
-  const hit=(x0,x1)=>b>=x0&&b<x1;
-  e.bl=e.br=(B%7)>6.72?1:0;
-  if(mode==='idol'){
-    e.browDn=.8;e.smile=.12;e.squint=.25;
-    if(k===0&&hit(6,8)){e.browDn=0;e.browUp=.6;e.smile=.8;}
-    if(k===1){e.pucker=.5+.4*sin(b*PI);e.browDn=.3;}
-    if(k===2){if(hit(3,5)){e.open=.5;e.browUp=.5;e.browDn=0;}
-      if(hit(5,7.2)){e.br=1;e.smile=1;e.browDn=0;e.browUp=.4;e.squint=0;e.close=1;}}
-    if(k===3){if(hit(0,2)){e.open=.7;e.wide=.8;e.browUp=.8;e.browDn=0;e.squint=0;}
-      if(hit(6,7)){e.open=1;e.smile=.6;e.browDn=0;e.browUp=.6;}}
-    if(k===4){if(hit(3,5)){e.sad=.6;e.browDn=1;}
-      if(hit(5.2,6.6)){e.br=1;e.smile=1;e.browDn=0;e.browUp=.4;e.squint=0;}
-      if(b>=6.6){e.smile=1;e.open=.35;e.browDn=0;e.squint=.5;}
-      if(b>=5)e.close=1;}
-  }else if(mode==='power'){
-    e.smile=.75+.25*beat;e.open=.25+.3*beat;e.squint=.4;e.browUp=.3;
-    if(k===0)e.open=.7*Math.abs(sin(b*PI));
-    if(k===1){e.pucker=.7*(.5+.5*sin(b*TAU));e.smile=.25;e.open=.12;e.squint=0;e.browDn=.4;e.browUp=0;}
-    if(k===2){if(hit(1,2))e.bl=1;if(hit(5,6))e.br=1;}
-    if(k===3&&hit(4,7)){e.open=.9;e.wide=1;e.browUp=1;e.smile=.2;e.squint=0;}
-    if(k===4){if(hit(6,7)){e.open=1;e.wide=.8;e.browUp=1;e.squint=0;}
-      if(b>=7){e.smile=1;e.br=1;e.open=.3;e.squint=0;e.close=1;}}
+  const p=Math.floor(B/8),b=B-8*p,lv=levelAt(p),beat=Math.exp(-(B-Math.floor(B))*4),h=pmod(p*13+5,7),e={};
+  CHK.forEach(n=>e[n]=0);
+  e.bl=e.br=pmod(B,7)>6.72?1:0;
+  if(lv===0){e.smile=.35;e.squint=.2;if(h<2)e.browUp=.4+.3*sin(b*PI/2);if(h===5){e.browDn=.5;e.squint=.35;}}
+  else if(lv===1){e.smile=.55+.25*beat;e.browUp=.25;if(h===1||h===5){e.browDn=.7;e.smile=.2;e.squint=.3;e.browUp=0;}}
+  else{e.smile=.8;e.squint=.4;e.browUp=.5;if(h===3||h===6){e.wide=.8;e.squint=0;e.browUp=1;}}
+  if((h===0||h===2)&&b>=5&&b<7.2){e.br=1;e.smile=1;e.squint=0;e.browDn=0;e.browUp=.4;e.close=1;}   // wink to the camera
+  if(h===4&&b>=6&&b<7)e.bl=1;
+  if(song&&songPlaying){
+    const i=Math.min(song.voc.length-1,Math.max(0,Math.round((songTime()+.04)*song.fps))),v=song.voc[i],br=song.bri[i];
+    e.open=Math.min(1,v*.95);e.pucker=.75*v*(1-br);e.smile=e.smile*(.45+.55*br)*(1-.5*v*(1-br))+.2*v*br;
+    if(v>.6)e.browUp=Math.max(e.browUp,.5*v);
   }else{
-    e.smile=.5+.5*beat;
-    if(k===0){e.squint=.4*beat;e.open=.25*beat;}
-    if(k===1){e.browUp=.5+.5*sin(b*PI);e.pucker=.6*Math.max(0,sin(b*PI/2));e.smile*=.5;}
-    if(k===2){if((b%4)>=3){e.bl=1;e.smile=1;e.squint=.3;}else e.open=.3;}
-    if(k===3){e.squint=.6;e.open=.45;e.smile=1;}
-    if(k===4){if(b<4){e.open=.8;e.wide=.8;e.browUp=.9;e.smile=.1;}
-      else{e.open=Math.abs(sin(b*PI));e.browUp=1;e.wide=.5;e.smile=.4;}}
+    e.open=[.12,.3,.55][lv]*beat;if(lv===2&&(h===3||h===6))e.open=.85;
   }
   return e;
 }
 function poseAt(B){
-  const moves=DANCES[mode];
-  const k=Math.floor(B/8)%moves.length, b=B%8, cur=moves[k](b);
+  const p=Math.floor(B/8),b=B-8*p,cur=moveAt(p)(b);
   const w=ease(b/0.75);if(w>=1)return cur;
-  const prev=moves[(k+moves.length-1)%moves.length](b+8);
+  const prev=moveAt(p-1)(b+8);
   for(const key in cur)cur[key]=prev[key]+(cur[key]-prev[key])*w;
   return cur;
 }
@@ -505,7 +491,7 @@ function buildHead3D(cv,q){
       if((yi>y)!==(yj>y)&&x<(xj-xi)*(y-yi)/(yj-yi)+xi)inside=!inside;}return inside;};
   OVAL.forEach((i,k)=>{const n=470+k;let sx=pos[3*i]*1.07,sy=(pos[3*i+1]-cy)*1.07;
     let e2=sx*sx/(rx*rx)+sy*sy/(ry*ry);if(e2>.97){const f=Math.sqrt(.97/e2);sx*=f;sy*=f;e2=.97;}
-    const z=cz+rz*Math.sqrt(1-e2);pos[3*n]=sx;pos[3*n+1]=sy+cy;pos[3*n+2]=z;
+    const z=cz+rz*Math.sqrt(1-e2)+.012;pos[3*n]=sx;pos[3*n+1]=sy+cy;pos[3*n+2]=z;
     const qq=toQ(sx,sy+cy,z);setUV(n,qq[0],qq[1]);aF[n]=.999;});
 
   // triangles (consistent winding, facing forward)
@@ -525,18 +511,18 @@ function buildHead3D(cv,q){
     if(!L.length)return [120,90,80];L.sort((a,b)=>(a[0]+a[1]+a[2])-(b[0]+b[1]+b[2]));return L[L.length>>1];};
   const t10=Q(10),skin=med([Q(205),Q(425),Q(151)],9);
   const hair=med([[t10[0]-.1,t10[1]+.3],[t10[0]+.1,t10[1]+.3],[t10[0],t10[1]+.36],[t10[0]-.08,t10[1]+.42],[t10[0]+.08,t10[1]+.42]],8);
-  const mk=sc=>{const m=document.createElement('canvas');m.width=m.height=TS;const c=m.getContext('2d');
+  const mkc=sc=>{const m=document.createElement('canvas');m.width=m.height=TS;const c=m.getContext('2d');
     let mx=0,my=0;OVAL.forEach(i=>{mx+=q[3*i]/36;my+=q[3*i+1]/36;});c.fillStyle='#fff';c.beginPath();
     OVAL.forEach((i,k)=>{const dx=q[3*i]-mx,dy=q[3*i+1]-my,p=qpx(mx+dx*sc[0],my+dy*(dy>0?sc[1]:sc[2]));k?c.lineTo(p[0],p[1]):c.moveTo(p[0],p[1]);});
-    c.closePath();c.fill();return c.getImageData(0,0,TS,TS).data;};
-  const mA=mk([1,1,1]),mB=mk([1.15,1.24,1.03]);
+    c.closePath();c.fill();return m;};
+  const ovalCv=mkc([1,1,1]),mA=ovalCv.getContext('2d').getImageData(0,0,TS,TS).data,mB=mkc([1.15,1.3,1.03]).getContext('2d').getImageData(0,0,TS,TS).data,upY=t10[1]-.12;
   const sc=toQ(0,cy,cz),A=new Float32Array(TS*TS);
   const dist=(o,c)=>Math.hypot(D[o]-c[0],D[o+1]-c[1],D[o+2]-c[2]);
   for(let y=0;y<TS;y++)for(let x=0;x<TS;x++){const o=4*(y*TS+x),p=y*TS+x;
     if(mA[o]>127){A[p]=1;continue;}
     const qx=(x/TS-.5)*TW,qy=(.5+CY0/TW-y/TS)*TW,ex=(qx-sc[0])/.74,ey=(qy-sc[1])/(ry*1.1);
     if(ex*ex+ey*ey>1)continue;
-    const h=dist(o,hair)<70;A[p]=(mB[o]>127?(h||dist(o,skin)<58):h)?1:0;}
+    const h=dist(o,hair)<70;A[p]=(mB[o]>127?(qy>upY||h||dist(o,skin)<58):h)?1:0;}
   const T2=new Float32Array(TS*TS);
   for(let pass=0;pass<2;pass++){ // soften the cut-out edge
     for(let y=0;y<TS;y++)for(let x=0;x<TS;x++){let s=0;for(let k=-2;k<=2;k++){const xx=Math.min(TS-1,Math.max(0,x+k));s+=A[y*TS+xx];}T2[y*TS+x]=s/5;}
@@ -544,21 +530,23 @@ function buildHead3D(cv,q){
   for(let p=0;p<TS*TS;p++)D[4*p+3]=Math.round(255*A[p]);
   tx.putImageData(id,0,0);
   const tex=new THREE.CanvasTexture(tc);tex.minFilter=THREE.LinearFilter;tex.generateMipmaps=false;tex.premultiplyAlpha=false;
+  const ovalTex=new THREE.CanvasTexture(ovalCv);ovalTex.minFilter=THREE.LinearFilter;ovalTex.generateMipmaps=false;
 
   const uni={map:{value:tex},hair:{value:new THREE.Color(hair[0]/255,hair[1]/255,hair[2]/255)},
     skin:{value:new THREE.Color(skin[0]/255,skin[1]/255,skin[2]/255)},
-    uSc:{value:new THREE.Vector3(0,cy,cz)},uSr:{value:new THREE.Vector3(rx,ry,rz)},uOpen:{value:0}};
+    uSc:{value:new THREE.Vector3(0,cy,cz)},uSr:{value:new THREE.Vector3(rx,ry,rz)},uOpen:{value:0},oval:{value:ovalTex},uSkull:{value:0}};
   const vsh=`attribute float aF; attribute float lipSide; varying vec2 vUv; varying vec3 vH; varying vec3 vN; varying float vF; varying float vT;
     void main(){vUv=uv;vH=position;vF=aF;vT=lipSide;vN=normalMatrix*normal;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}`;
-  const common=`uniform sampler2D map; uniform vec3 hair; uniform vec3 skin; uniform vec3 uSc; uniform vec3 uSr; uniform float uOpen;
+  const common=`uniform sampler2D oval; uniform float uSkull; uniform sampler2D map; uniform vec3 hair; uniform vec3 skin; uniform vec3 uSc; uniform vec3 uSr; uniform float uOpen;
     varying vec2 vUv; varying vec3 vH; varying vec3 vN; varying float vF; varying float vT;
-    float shade(){return 0.86+0.14*max(dot(normalize(vN),normalize(vec3(0.3,0.6,0.7))),0.0);}`;
+    float shade(){return 0.92+0.08*max(dot(normalize(vN),normalize(vec3(0.3,0.6,0.7))),0.0);}`;
   const mat=new THREE.ShaderMaterial({uniforms:uni,vertexShader:vsh,side:THREE.DoubleSide,fragmentShader:common+`
     void main(){
       vec4 t=texture2D(map,vUv);vec3 e=(vH-uSc)/uSr;
       float hl=mix(-0.55,0.1,smoothstep(-0.5,0.35,e.z));
       vec3 fill=mix(skin,hair,smoothstep(hl-0.07,hl+0.07,e.y));
       float inb=step(0.0,vUv.x)*step(vUv.x,1.0)*step(0.0,vUv.y)*step(vUv.y,1.0);
+      if(uSkull>0.5&&inb>0.5&&vF>0.0&&texture2D(oval,vUv).r>0.5)discard;
       float f=smoothstep(0.08,0.4,vF);
       gl_FragColor=vec4(mix(fill,t.rgb,t.a*f*inb)*shade()*1.04,1.0);
     }`});
@@ -575,6 +563,8 @@ function buildHead3D(cv,q){
   geo.setAttribute('position',pAttr);geo.setAttribute('uv',new THREE.BufferAttribute(uv,2));
   geo.setAttribute('aF',new THREE.BufferAttribute(aF,1));geo.setAttribute('lipSide',new THREE.BufferAttribute(lipSide,1));
   geo.setIndex(idx);geo.computeVertexNormals();
+  const nA=geo.attributes.normal;   // rim and skirt take the skull's normals so the shading has no seam
+  OVAL.concat(Array.from({length:36},(_,k)=>470+k)).forEach(i=>{const v=nrm([pos[3*i]/(rx*rx),(pos[3*i+1]-cy)/(ry*ry),Math.max(0,pos[3*i+2]-cz)/(rz*rz)]);nA.setXYZ(i,v[0],v[1],v[2]);});
   geo.boundingSphere=new THREE.Sphere(new THREE.Vector3(0,cy,0),2);
   const mgeo=new THREE.BufferGeometry();
   ['position','uv','aF','lipSide','normal'].forEach(n=>mgeo.setAttribute(n,geo.getAttribute(n)));
@@ -587,7 +577,6 @@ function buildHead3D(cv,q){
     const nn=nrm([ux/rx,uy/ry,uz/rz]);sn.setXYZ(i,nn[0],nn[1],nn[2]);
     const qq=toQ(x,y,z);sUv[2*i]=.5+qq[0]/TW;sUv[2*i+1]=.5-CY0/TW+qq[1]/TW;
     sF[i]=X[2]*nn[0]+Y[2]*nn[1]+Z[2]*nn[2];
-    if(uz>0&&inOval(x,y,.9))z=cz-.03;   // hollow behind the face so the skull never pokes through it
     sp.setXYZ(i,x,y,z);}
   sg.setAttribute('uv',new THREE.BufferAttribute(sUv,2));sg.setAttribute('aF',new THREE.BufferAttribute(sF,1));
   sg.setAttribute('lipSide',new THREE.BufferAttribute(sL,1));
@@ -632,9 +621,10 @@ function buildHead3D(cv,q){
     pAttr.needsUpdate=true;uni.uOpen.value=E.open||0;
   }
   const grp=new THREE.Group(),sc1=1.05;
-  [new THREE.Mesh(sg,mat),new THREE.Mesh(geo,mat),new THREE.Mesh(mgeo,mouthMat)].forEach(m=>{m.castShadow=true;m.frustumCulled=false;grp.add(m);});
+  const skullMat=mat.clone();skullMat.uniforms=Object.assign({},uni,{uSkull:{value:1}});
+  [new THREE.Mesh(sg,skullMat),new THREE.Mesh(geo,mat),new THREE.Mesh(mgeo,mouthMat)].forEach(m=>{m.castShadow=true;m.frustumCulled=false;grp.add(m);});
   grp.scale.setScalar(sc1);grp.position.set(0,.72-cy*sc1,.02-cz*sc1-.12);
-  return {grp,apply,dispose(){sg.dispose();geo.dispose();mgeo.dispose();mat.dispose();mouthMat.dispose();tex.dispose();}};
+  return {grp,apply,dispose(){sg.dispose();geo.dispose();mgeo.dispose();mat.dispose();skullMat.dispose();mouthMat.dispose();tex.dispose();ovalTex.dispose();}};
 }
 function setFace3D(cv,q){
   const h=buildHead3D(cv,q);
@@ -795,8 +785,6 @@ document.getElementById('ok').addEventListener('click',()=>{
 });
 
 // ---------- share link (face picture stored in Supabase Storage) ----------
-document.getElementById('mode').addEventListener('click',()=>{setMode({fun:'idol',idol:'power',power:'fun'}[mode]);
-  if(shared){shared=null;linkEl.hidden=true;shGo.textContent='링크 만들기';}});
 const shareBtn=document.getElementById('share'),shBox=document.getElementById('sharebox');
 const linkEl=document.getElementById('link'),shGo=document.getElementById('shgo'),shNote=document.getElementById('shnote');
 let shared=null;
@@ -817,7 +805,7 @@ shGo.addEventListener('click',()=>{
     const jobs=[up(id+'.jpg',blob,'image/jpeg')];
     if(f3)jobs.push(up(id+'.json',JSON.stringify({v:2,q:Array.from(f3.q,x=>Math.round(x*1e4)/1e4)}),'application/json'));
     Promise.all(jobs).then(()=>{
-      shared=location.origin+location.pathname+'?d='+id+(f3?'&f=3':'')+(mode!=='fun'?'&m='+mode:'');
+      shared=location.origin+location.pathname+'?d='+id+(f3?'&f=3':'');
       linkEl.value=shared;linkEl.hidden=false;shNote.textContent='이 링크를 보내면 내 얼굴로 춤추는 화면이 열려요.';
       shGo.disabled=false;shGo.textContent='링크 복사';})
     .catch(()=>{shGo.disabled=false;shGo.textContent='다시 시도';shNote.textContent='링크를 만들지 못했어요. 잠시 뒤 다시 시도해 주세요.';});
@@ -827,12 +815,7 @@ shGo.addEventListener('click',()=>{
 // ---------- music (generated in the browser) ----------
 const t0=performance.now();
 let beat0=0,tRef=t0,nextN=0;
-const beatNow=()=>beat0+(performance.now()-tRef)/1000*TEMPO[mode]/60;
-function retime(){ // keep the beat position when the tempo changes with the dance
-  const now=performance.now();beat0=beat0+(now-tRef)/1000*TEMPO[prevTempoMode]/60;tRef=now;prevTempoMode=mode;
-  nextN=Math.ceil(beat0*4);
-}
-let prevTempoMode='fun';
+const beatNow=()=>song&&songPlaying?(songTime()-song.off)*song.bpm/60:beat0+(performance.now()-tRef)/1000*(song?song.bpm:SYN_BPM)/60;
 let ac=null,master=null,noise=null,playing=false,timer=null;
 const btn=document.getElementById('music');
 let duck=null;
@@ -864,7 +847,7 @@ function hit(t,dur,vol,type,freq){
   s.connect(f);f.connect(g);g.connect(master);s.start(t);s.stop(t+dur+.02);
 }
 function step(n,t){ // n counts 16th notes
-  const s=n%16,bar=Math.floor(n/16),song=SONGS[mode],ci=bar%4,root=song.roots[ci];
+  const s=n%16,bar=Math.floor(n/16),sg=SONGS.fun,ci=bar%4,root=sg.roots[ci];
   if(s%4===0){ // four-on-the-floor kick, and it ducks the bass and chords so the beat pumps
     const o=ac.createOscillator(),g=ac.createGain();o.frequency.setValueAtTime(165,t);
     o.frequency.exponentialRampToValueAtTime(45,t+.11);g.gain.setValueAtTime(1,t);
@@ -876,42 +859,151 @@ function step(n,t){ // n counts 16th notes
   if(s%4===2)hit(t,.14,.13,'highpass',6500);
   if(bar%2===0&&s===0)hit(t,.9,.2,'highpass',5000);              // crash where the dance move changes
   if(bar%2===1&&s>=12)hit(t,.06,.14+.06*(s-12),'bandpass',2200);  // snare roll into the next move
-  if(song.bass==='disco'){
+  if(sg.bass==='disco'){
     if(s%4===0)tone(duck,mf(root),t,.13,'sawtooth',.34,700);
     else if(s%4===2)tone(duck,mf(root+12),t,.17,'sawtooth',.3,900);
     else if(s===15)tone(duck,mf(root+7),t,.1,'sawtooth',.22,900);
-  }else if(song.bass==='drive'){
+  }else if(sg.bass==='drive'){
     if(s%2===0)tone(duck,mf(root+(s%4?12:0)),t,.11,'sawtooth',.3,850);
     if(s%4===0&&bar%2===1)hit(t,.12,.2,'bandpass',1500); // extra claps on every beat to build
   }else if([0,3,6,8,11,14].indexOf(s)>=0)tone(duck,mf(root),t,.17,'square',.26,520);
-  if(song.stab.indexOf(s)>=0)song.chords[ci].forEach(m=>{tone(duck,mf(m),t,.15,'sawtooth',.05,2600);tone(duck,mf(m+12),t,.12,'sawtooth',.025,3200);});
-  if(s%2===0){const m=song.lead[ci][s/2];
-    if(m){tone(master,mf(m),t,.22,song.leadType,.05,5200);tone(master,mf(m)*1.007,t,.22,song.leadType,.032,5200);}}
+  if(sg.stab.indexOf(s)>=0)sg.chords[ci].forEach(m=>{tone(duck,mf(m),t,.15,'sawtooth',.05,2600);tone(duck,mf(m+12),t,.12,'sawtooth',.025,3200);});
+  if(s%2===0){const m=sg.lead[ci][s/2];
+    if(m){tone(master,mf(m),t,.22,sg.leadType,.05,5200);tone(master,mf(m)*1.007,t,.22,sg.leadType,.032,5200);}}
 }
 function sched(){
   const nb=beatNow();
   while(nextN/4<nb+.4){
-    const at=ac.currentTime+(nextN/4-nb)*60/TEMPO[mode];
+    const at=ac.currentTime+(nextN/4-nb)*60/SYN_BPM;
     if(at>ac.currentTime)step(nextN,at);
     nextN++;
   }
 }
+// ---------- your own song: loaded from this device, analysed here, never uploaded ----------
+function fftMag(re,im,N,cosT,sinT,rev){
+  for(let i=0;i<N;i++){const j=rev[i];if(j>i){let t=re[i];re[i]=re[j];re[j]=t;t=im[i];im[i]=im[j];im[j]=t;}}
+  for(let s=2;s<=N;s<<=1){const h=s>>1,st=N/s;
+    for(let i=0;i<N;i+=s)for(let k=0;k<h;k++){const c=cosT[k*st],sn=sinT[k*st],a=i+k,b=a+h;
+      const tr=re[b]*c+im[b]*sn,ti=im[b]*c-re[b]*sn;re[b]=re[a]-tr;im[b]=im[a]-ti;re[a]+=tr;im[a]+=ti;}}
+}
+function analyzeSong(buf){
+  const sr=buf.sampleRate,Lc=buf.getChannelData(0),Rc=buf.numberOfChannels>1?buf.getChannelData(1):Lc;
+  const dec=Math.max(1,Math.round(sr/22050)),fs=sr/dec,n=Math.floor(Lc.length/dec);
+  const mid=new Float32Array(n),side=new Float32Array(n);
+  for(let i=0;i<n;i++){let a=0,b=0;for(let k=0;k<dec;k++){a+=Lc[i*dec+k];b+=Rc[i*dec+k];}mid[i]=(a+b)/(2*dec);side[i]=(a-b)/(2*dec);}
+  const N=512,H=256,fps=fs/H,nf=Math.max(1,Math.floor((n-N)/H));
+  const cosT=new Float32Array(N/2),sinT=new Float32Array(N/2),rev=new Uint16Array(N),win=new Float32Array(N);
+  for(let i=0;i<N/2;i++){cosT[i]=Math.cos(2*Math.PI*i/N);sinT[i]=Math.sin(2*Math.PI*i/N);}
+  for(let i=0;i<N;i++){let r=0;for(let b=0;b<9;b++)if(i&(1<<b))r|=1<<(8-b);rev[i]=r;win[i]=.5-.5*Math.cos(2*Math.PI*i/N);}
+  const re=new Float32Array(N),im=new Float32Array(N),prev=new Float32Array(N/2);
+  const flux=new Float32Array(nf),en=new Float32Array(nf),low=new Float32Array(nf),va=new Float32Array(nf),cen=new Float32Array(nf);
+  const hz=fs/N,k1=Math.round(300/hz),k2=Math.round(3400/hz),kl=Math.max(1,Math.round(150/hz));
+  for(let f=0;f<nf;f++){const o=f*H;
+    for(let i=0;i<N;i++){re[i]=mid[o+i]*win[i];im[i]=0;}
+    fftMag(re,im,N,cosT,sinT,rev);
+    let fl=0,e=0,lo=0,em=0,cs=0;
+    for(let k=1;k<N/2;k++){const p=re[k]*re[k]+im[k]*im[k],lg=Math.log1p(50*Math.sqrt(p));
+      if(lg>prev[k])fl+=lg-prev[k];prev[k]=lg;e+=p;if(k<=kl)lo+=p;if(k>=k1&&k<=k2){em+=p;cs+=p*k*hz;}}
+    for(let i=0;i<N;i++){re[i]=side[o+i]*win[i];im[i]=0;}
+    fftMag(re,im,N,cosT,sinT,rev);
+    let es=0;for(let k=k1;k<=k2;k++)es+=re[k]*re[k]+im[k]*im[k];
+    flux[f]=fl;en[f]=e;low[f]=lo;va[f]=Math.sqrt(Math.max(0,em-2*es));cen[f]=em>0?cs/em:0;}
+  // tempo: autocorrelation of the onset curve, then a fine search for the exact tempo and beat phase
+  const on=new Float32Array(nf);
+  for(let f=0;f<nf;f++){let s=0,c=0;for(let k=-15;k<=15;k++){const j=f+k;if(j>=0&&j<nf){s+=flux[j];c++;}}on[f]=Math.max(0,flux[f]-s/c);}
+  const sm=new Float32Array(nf);
+  for(let f=0;f<nf;f++){let s=0;for(let k=-3;k<=3;k++){const j=f+k;if(j>=0&&j<nf)s+=on[j]*(.5+.5*Math.cos(Math.PI*k/4));}sm[f]=s;}
+  const at=x=>{const i=Math.floor(x);return i<0||i>=nf-1?0:sm[i]*(1-(x-i))+sm[i+1]*(x-i);};
+  let best=0,c0=120;
+  for(let bpm=70;bpm<=180;bpm+=.5){const lag=60/bpm*fps,i=Math.floor(lag),w=lag-i;let a=0,b=0;
+    for(let f=0;f+i+1<nf;f+=2){a+=sm[f]*sm[f+i];b+=sm[f]*sm[f+i+1];}
+    const v=a*(1-w)+b*w;if(v>best){best=v;c0=bpm;}}
+  let bs=-1,bpm=c0,ph=0;
+  for(let q=c0*.97;q<=c0*1.03;q+=.02){const per=60/q*fps,nb=Math.floor(nf/per)-1;
+    for(let j=0;j<24;j++){const p=per*j/24;let s=0;for(let b=0;b<nb;b++)s+=at(p+b*per);s/=Math.max(1,nb);
+      if(s>bs){bs=s;bpm=q;ph=p/fps;}}}
+  while(bpm<88)bpm*=2;while(bpm>176)bpm/=2;
+  const T=60/bpm,dur=buf.duration;ph=ph%T;
+  // bar and phrase start: the beat that carries the most bass
+  const lowAt=t=>{const i=Math.round(t*fps);let s=0;for(let k=-1;k<=2;k++){const j=i+k;if(j>=0&&j<nf)s+=low[j];}return s;};
+  let kb=0,kv=-1;
+  for(let k=0;k<4;k++){let s=0;for(let t=ph+k*T;t<dur;t+=4*T)s+=lowAt(t);if(s>kv){kv=s;kb=k;}}
+  let off=(ph+kb*T)%(8*T);
+  // energy level of every 8-beat phrase -> calm / medium / wild moves
+  const nPhr=Math.max(1,Math.ceil((dur-off)/(8*T))),pe=[],pf=[];
+  for(let p=0;p<nPhr;p++){const a=Math.max(0,Math.floor((off+p*8*T)*fps)),b=Math.min(nf,Math.floor((off+(p+1)*8*T)*fps));
+    let e=0,fl=0;for(let f=a;f<b;f++){e+=en[f];fl+=on[f];}const c=Math.max(1,b-a);pe.push(10*Math.log10(e/c+1e-12));pf.push(fl/c);}
+  const z=a=>{const m=a.reduce((x,y)=>x+y,0)/a.length,s=Math.sqrt(a.reduce((x,y)=>x+(y-m)*(y-m),0)/a.length)||1;return a.map(v=>(v-m)/s);};
+  const ze=z(pe),zf=z(pf),sc=ze.map((v,i)=>v+.7*zf[i]),sorted=sc.slice().sort((a,b)=>a-b);
+  const spe=pe.slice().sort((a,b)=>a-b),range=spe[Math.floor(spe.length*.9)]-spe[Math.floor(spe.length*.1)];
+  const flat=range<3,qLo=sorted[Math.floor(sorted.length*(flat?.14:.3))],qHi=sorted[Math.floor(sorted.length*(flat?.45:.62))];
+  const lev=new Int8Array(nPhr);for(let p=0;p<nPhr;p++)lev[p]=sc[p]<qLo?0:sc[p]>=qHi?2:1;
+  // voice: centre-panned mid band -> how far the mouth opens; brightness -> wide or round mouth
+  const sv=Array.from(va).filter(v=>v>0).sort((a,b)=>a-b),fl0=sv[Math.floor(sv.length*.25)]||0,pk=(sv[Math.floor(sv.length*.92)]||1)-fl0||1;
+  const voc=new Float32Array(nf),bri=new Float32Array(nf),w=Math.round(fps*.25);let run=0;
+  for(let f=0;f<nf;f++){run+=va[f];if(f>=2*w)run-=va[f-2*w];const slow=run/Math.min(f+1,2*w);
+    const o=Math.min(1,Math.max(0,(va[f]-fl0)/pk));
+    voc[f]=Math.min(1,Math.max(0,.5*o+1.5*Math.max(0,(va[f]-slow)/pk)));
+    bri[f]=Math.min(1,Math.max(0,(cen[f]-800)/1400));}
+  return {buf,bpm,off,dur,fps,lev,nPhr,voc,bri};
+}
+let song=null,songSrc=null,songStart=0,songPos=0,songPlaying=false;
+const songTime=()=>((ac.currentTime-songStart)%song.dur+song.dur)%song.dur;
+function ensureAC(){
+  if(ac)return;
+  ac=new (window.AudioContext||window.webkitAudioContext)();
+  const comp=ac.createDynamicsCompressor();comp.connect(ac.destination);
+  master=ac.createGain();master.gain.value=.6;master.connect(comp);
+  duck=ac.createGain();duck.connect(master);
+  noise=ac.createBuffer(1,ac.sampleRate,ac.sampleRate);
+  const d=noise.getChannelData(0);for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1;
+}
+function rebase(){beat0=beatNow();tRef=performance.now();}
+function stopSynth(){if(playing){clearInterval(timer);playing=false;}}
+function playSong(){
+  stopSynth();ac.resume();
+  songSrc=ac.createBufferSource();songSrc.buffer=song.buf;songSrc.loop=true;songSrc.connect(ac.destination);
+  songSrc.start(0,songPos%song.dur);songStart=ac.currentTime-songPos;songPlaying=true;btn.textContent='■ 음악 끄기';
+}
+function pauseSong(){
+  if(!songPlaying)return;rebase();songPos=songTime();
+  try{songSrc.stop();}catch(e){}songSrc=null;songPlaying=false;btn.textContent='♪ 음악 켜기';
+}
+function kv(mode,val){return new Promise((res,rej)=>{try{const r=indexedDB.open('pepero',1);
+  r.onupgradeneeded=()=>r.result.createObjectStore('kv');r.onerror=()=>rej(r.error);
+  r.onsuccess=()=>{try{const tx=r.result.transaction('kv',mode),st=tx.objectStore('kv'),q=mode==='readwrite'?st.put(val,'song'):st.get('song');
+    q.onsuccess=()=>res(q.result);q.onerror=()=>rej(q.error);}catch(e){rej(e);}};}catch(e){rej(e);}});}
+async function loadSong(ab,remember){
+  ensureAC();
+  const buf=await new Promise((res,rej)=>{const p=ac.decodeAudioData(ab.slice(0),res,rej);if(p&&p.catch)p.catch(rej);});
+  await new Promise(r=>setTimeout(r,30));
+  const s=analyzeSong(buf);
+  if(songPlaying)pauseSong();rebase();stopSynth();
+  song=s;songPos=0;beat0=0;tRef=performance.now();
+  if(remember)kv('readwrite',ab).catch(()=>{});
+  return s;
+}
+const sfile=document.getElementById('sfile'),hintEl=document.querySelector('.hint');
+document.getElementById('pickSong').addEventListener('click',()=>sfile.click());
+sfile.addEventListener('change',()=>{
+  const f=sfile.files&&sfile.files[0];sfile.value='';if(!f)return;
+  busyEl.textContent='노래 분석 중…';busyEl.classList.add('on');
+  f.arrayBuffer().then(ab=>loadSong(ab,true)).then(()=>{
+    busyEl.classList.remove('on');busyEl.textContent='얼굴 찾는 중…';
+    try{playSong();}catch(e){}
+    hintEl.textContent='소리가 안 나면 "음악 켜기"를 눌러 주세요';
+  }).catch(()=>{busyEl.classList.remove('on');busyEl.textContent='얼굴 찾는 중…';hintEl.textContent='이 파일은 재생할 수 없어요. mp3나 wav 파일로 해 주세요.';});
+});
+kv('readonly').then(ab=>{if(ab&&ab.byteLength)loadSong(ab,false).then(()=>{hintEl.textContent='"음악 켜기"를 누르면 저장해 둔 노래에 맞춰 춤춰요';}).catch(()=>{});}).catch(()=>{});
 btn.addEventListener('click',()=>{
   try{
-    if(!ac){
-      ac=new (window.AudioContext||window.webkitAudioContext)();
-      const comp=ac.createDynamicsCompressor();comp.connect(ac.destination);
-      master=ac.createGain();master.gain.value=.6;master.connect(comp);
-      duck=ac.createGain();duck.connect(master);
-      noise=ac.createBuffer(1,ac.sampleRate,ac.sampleRate);
-      const d=noise.getChannelData(0);for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1;
-    }
+    ensureAC();
+    if(song){songPlaying?pauseSong():playSong();return;}
     if(playing){clearInterval(timer);ac.suspend();playing=false;btn.textContent='♪ 음악 켜기';}
     else{ac.resume();nextN=Math.ceil(beatNow()*4);timer=setInterval(sched,40);playing=true;btn.textContent='■ 음악 끄기';}
   }catch(e){btn.textContent='이 브라우저에서는 음악을 틀 수 없어요';btn.disabled=true;}
 });
 
-// ---------- loop ----------
 const title=document.getElementById('title');
 const hp=new THREE.Vector3(),look=new THREE.Vector3();
 const frozen=(function(){const m=/^#beat=([\d.]+)$/.exec(location.hash);return m?+m[1]:null;})();
@@ -921,7 +1013,8 @@ function frame(){
   apply(star,poseAt(B));
   backs.forEach(d=>apply(d.c,poseAt(B+d.off)));
   const e=exprAt(B),kf=frozen!==null?1:.28;
-  for(const k in E0)E0[k]+=(e[k]-E0[k])*kf;
+  for(const k in E0)E0[k]+=(e[k]-E0[k])*(k==='open'||k==='pucker'?Math.max(kf,.55):kf);
+  setTheme(levelAt(Math.floor(B/8)));
   headU.ex.value.set(E0.smile,E0.bl,E0.br,E0.open);headU.brow.value=E0.browUp-E0.browDn;
   if(H3)H3.apply(E0);
   const pulse=Math.exp(-(B%1)*5);
@@ -945,8 +1038,10 @@ function frame(){
   renderer.render(scene,camera);
   requestAnimationFrame(frame);
 }
-try{setMode(new URLSearchParams(location.search).get('m'));}catch(e){setMode('fun');}
-window.__pp={auto:async url=>{const im=new Image();im.src=url;await im.decode();const ok=await autoFace(im);
+setTheme(1);
+window.__pp={song:async url=>{const ab=await (await fetch(url)).arrayBuffer();const s=await loadSong(ab,false);
+  return {bpm:s.bpm,off:s.off,dur:s.dur,lev:Array.from(s.lev),vocMean:s.voc.reduce((a,b)=>a+b,0)/s.voc.length,vocOpen:Array.from(s.voc).filter(v=>v>.4).length/s.voc.length};},
+  play:()=>{playSong();return ac.state;},state:()=>({B:beatNow(),playing:songPlaying,ac:ac&&ac.state}),auto:async url=>{const im=new Image();im.src=url;await im.decode();const ok=await autoFace(im);
   return ok?{img:face3d.cv.toDataURL('image/jpeg',.85),q:Array.from(face3d.q,x=>Math.round(x*1e4)/1e4)}:null;}};
 frame();
 })();
