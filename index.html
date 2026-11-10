@@ -91,6 +91,7 @@
     <div class="row">
       <button id="shclose" class="ghost" type="button">닫기</button>
       <button id="shgo" type="button">링크 만들기</button>
+      <button id="shshare" type="button" hidden>공유하기</button>
     </div>
   </div>
 </div>
@@ -762,7 +763,7 @@ fileEl.addEventListener('change',()=>{
   const url=URL.createObjectURL(f),img=new Image();
   img.onload=()=>{autoFace(img).then(ok=>{
     if(!ok){openEditor(img);return;}
-    yaw=0;shared=null;linkEl.hidden=true;shGo.textContent='링크 만들기';if(SB_URL&&SB_KEY)shareBtn.hidden=false;});};
+    yaw=0;shared=null;linkEl.hidden=true;shShare.hidden=true;shGo.textContent='링크 만들기';if(SB_URL&&SB_KEY)shareBtn.hidden=false;});};
   img.onerror=()=>{URL.revokeObjectURL(url);document.querySelector('.hint').textContent='이 파일은 열 수 없어요. 다른 사진으로 해 주세요.';};
   img.src=url;
 });
@@ -782,11 +783,13 @@ ed.addEventListener('pointermove',e=>{
 ed.addEventListener('wheel',e=>{e.preventDefault();zoomEl.value=+zoomEl.value-Math.sign(e.deltaY)*3;redraw();},{passive:false});
 document.getElementById('cancel').addEventListener('click',closeEditor);
 document.getElementById('ok').addEventListener('click',()=>{
-  if(E.img){paint(fctx,FW,FH,false);commitFace();useEgg();yaw=0;shared=null;linkEl.hidden=true;shGo.textContent='링크 만들기';if(SB_URL&&SB_KEY)shareBtn.hidden=false;}
+  if(E.img){paint(fctx,FW,FH,false);commitFace();useEgg();yaw=0;shared=null;linkEl.hidden=true;shShare.hidden=true;shGo.textContent='링크 만들기';if(SB_URL&&SB_KEY)shareBtn.hidden=false;}
   closeEditor();
 });
 
 // ---------- share link (face picture stored in Supabase Storage) ----------
+const shShare=document.getElementById('shshare');
+shShare.addEventListener('click',()=>{if(shared&&navigator.share)navigator.share({title:'빼빼로 댄스',text:'내 빼빼로 댄스 보러 와!',url:shared}).catch(()=>{});});
 const shareBtn=document.getElementById('share'),shBox=document.getElementById('sharebox');
 const linkEl=document.getElementById('link'),shGo=document.getElementById('shgo'),shNote=document.getElementById('shnote');
 let shared=null;
@@ -809,7 +812,7 @@ shGo.addEventListener('click',()=>{
     Promise.all(jobs).then(()=>{
       shared=location.origin+location.pathname+'?d='+id+(f3?'&f=3':'');
       linkEl.value=shared;linkEl.hidden=false;shNote.textContent='이 링크를 보내면 내 얼굴로 춤추는 화면이 열려요. 11월 11일 24시까지 열리고, 그 이후에는 삭제돼요.';
-      shGo.disabled=false;shGo.textContent='링크 복사';})
+      shGo.disabled=false;shGo.textContent='링크 복사';if(navigator.share)shShare.hidden=false;})
     .catch(()=>{shGo.disabled=false;shGo.textContent='다시 시도';shNote.textContent='링크를 만들지 못했어요. 잠시 뒤 다시 시도해 주세요.';});
   },'image/jpeg',f3?.8:.85);
 });
@@ -962,13 +965,18 @@ function ensureAC(){
 }
 function rebase(){beat0=beatNow();tRef=performance.now();}
 function stopSynth(){if(playing){clearInterval(timer);playing=false;}}
+let wantPlay=false;
 function playSong(){
-  stopSynth();ac.resume();
+  if(ac.state!=='running'){   // browsers hold sound back until the first touch; start the moment it is allowed
+    try{const p=ac.resume();if(p&&p.then)p.then(()=>{if(ac.state==='running'&&song&&!songPlaying)playSong();}).catch(()=>{});}catch(e){}
+    return;
+  }
+  stopSynth();
   songSrc=ac.createBufferSource();songSrc.buffer=song.buf;songSrc.loop=true;songSrc.connect(ac.destination);
   songSrc.start(0,songPos%song.dur);songStart=ac.currentTime-songPos;songPlaying=true;btn.textContent='■ 음악 끄기';
 }
 function pauseSong(){
-  if(!songPlaying)return;rebase();songPos=songTime();
+  wantPlay=false;if(!songPlaying)return;rebase();songPos=songTime();
   try{songSrc.stop();}catch(e){}songSrc=null;songPlaying=false;btn.textContent='♪ 음악 켜기';
 }
 function kv(mode,val){return new Promise((res,rej)=>{try{const r=indexedDB.open('pepero',1);
@@ -992,25 +1000,29 @@ sfile.addEventListener('change',()=>{
   busyEl.textContent='노래 분석 중…';busyEl.classList.add('on');
   f.arrayBuffer().then(ab=>loadSong(ab,true)).then(()=>{
     busyEl.classList.remove('on');busyEl.textContent='얼굴 찾는 중…';
-    try{playSong();}catch(e){}
+    autoStart();
     hintEl.textContent='';
   }).catch(()=>{busyEl.classList.remove('on');busyEl.textContent='얼굴 찾는 중…';hintEl.textContent='이 파일은 재생할 수 없어요. mp3나 wav 파일로 해 주세요.';});
 });
+function autoStart(){wantPlay=true;try{playSong();}catch(e){}}
+['pointerdown','keydown','touchend'].forEach(n=>window.addEventListener(n,e=>{
+  if(!wantPlay||!song||songPlaying||(e.target&&e.target.closest&&e.target.closest('#music')))return;
+  try{playSong();}catch(err){}},true));
 function loadDefaultSong(){
   if(!DEFAULT_SONG)return;
   const get=DEFAULT_SONG.indexOf('data:')===0
     ?new Promise(res=>{const b=atob(DEFAULT_SONG.slice(DEFAULT_SONG.indexOf(',')+1)),u=new Uint8Array(b.length);for(let i=0;i<b.length;i++)u[i]=b.charCodeAt(i);res(u.buffer);})
     :fetch(DEFAULT_SONG).then(r=>{if(!r.ok)throw new Error(r.status);return r.arrayBuffer();});
-  get.then(ab=>loadSong(ab,false)).catch(()=>{});
+  get.then(ab=>loadSong(ab,false)).then(autoStart).catch(()=>{});
 }
 kv('readonly').then(ab=>{
-  if(ab&&ab.byteLength)loadSong(ab,false).catch(loadDefaultSong);
+  if(ab&&ab.byteLength)loadSong(ab,false).then(autoStart).catch(loadDefaultSong);
   else loadDefaultSong();
 }).catch(loadDefaultSong);
 btn.addEventListener('click',()=>{
   try{
     ensureAC();
-    if(song){songPlaying?pauseSong():playSong();return;}
+    if(song){if(songPlaying)pauseSong();else{wantPlay=true;playSong();}return;}
     if(playing){clearInterval(timer);ac.suspend();playing=false;btn.textContent='♪ 음악 켜기';}
     else{ac.resume();nextN=Math.ceil(beatNow()*4);timer=setInterval(sched,40);playing=true;btn.textContent='■ 음악 끄기';}
   }catch(e){btn.textContent='이 브라우저에서는 음악을 틀 수 없어요';btn.disabled=true;}
