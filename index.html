@@ -796,7 +796,7 @@ document.getElementById('ok').addEventListener('click',()=>{
 
 // ---------- share link (face picture stored in Supabase Storage) ----------
 const shShare=document.getElementById('shshare');
-shShare.addEventListener('click',()=>{if(shared&&navigator.share)navigator.share({title:'해피 빼빼로데이!',text:'해피 빼빼로데이! 내가 빼빼로가 돼서 춤추고 있어. 소리 켜고 눌러 봐',url:shared}).catch(()=>{});});
+shShare.addEventListener('click',()=>{if(shared&&navigator.share)navigator.share({url:shared}).catch(()=>{});});
 const shareBtn=document.getElementById('share'),shBox=document.getElementById('sharebox');
 const linkEl=document.getElementById('link'),shGo=document.getElementById('shgo'),shNote=document.getElementById('shnote');
 let shared=null;
