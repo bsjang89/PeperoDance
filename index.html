@@ -100,6 +100,7 @@
 (function(){
 const FACE="";
 const FACE3D=null;
+const DEFAULT_SONG="song.mp3";   // the page's own song: a file next to this page, or a data: URI
 // Supabase: project URL + publishable(anon) key, and a public storage bucket for shared faces.
 const SB_URL="https://iplduhidlesygllpdpme.supabase.co",SB_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlwbGR1aGlkbGVzeWdsbHBkcG1lIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU1Njc1ODYsImV4cCI6MjEwMTE0MzU4Nn0.FXcLfQw6YVztouAOxIEbFUmobPkWBflL9PsQo84Hczs",SB_BUCKET="faces";
 const SYN_BPM=126, TAU=Math.PI*2;
@@ -994,7 +995,17 @@ sfile.addEventListener('change',()=>{
     hintEl.textContent='소리가 안 나면 "음악 켜기"를 눌러 주세요';
   }).catch(()=>{busyEl.classList.remove('on');busyEl.textContent='얼굴 찾는 중…';hintEl.textContent='이 파일은 재생할 수 없어요. mp3나 wav 파일로 해 주세요.';});
 });
-kv('readonly').then(ab=>{if(ab&&ab.byteLength)loadSong(ab,false).then(()=>{hintEl.textContent='"음악 켜기"를 누르면 저장해 둔 노래에 맞춰 춤춰요';}).catch(()=>{});}).catch(()=>{});
+function loadDefaultSong(){
+  if(!DEFAULT_SONG)return;
+  const get=DEFAULT_SONG.indexOf('data:')===0
+    ?new Promise(res=>{const b=atob(DEFAULT_SONG.slice(DEFAULT_SONG.indexOf(',')+1)),u=new Uint8Array(b.length);for(let i=0;i<b.length;i++)u[i]=b.charCodeAt(i);res(u.buffer);})
+    :fetch(DEFAULT_SONG).then(r=>{if(!r.ok)throw new Error(r.status);return r.arrayBuffer();});
+  get.then(ab=>loadSong(ab,false)).then(()=>{hintEl.innerHTML='"음악 켜기"를 누르면 노래가 나와요<br>드래그로 돌리고, 휠·두 손가락으로 확대';}).catch(()=>{});
+}
+kv('readonly').then(ab=>{
+  if(ab&&ab.byteLength)loadSong(ab,false).then(()=>{hintEl.textContent='"음악 켜기"를 누르면 저장해 둔 노래에 맞춰 춤춰요';}).catch(loadDefaultSong);
+  else loadDefaultSong();
+}).catch(loadDefaultSong);
 btn.addEventListener('click',()=>{
   try{
     ensureAC();
@@ -1041,7 +1052,7 @@ function frame(){
 setTheme(1);
 window.__pp={song:async url=>{const ab=await (await fetch(url)).arrayBuffer();const s=await loadSong(ab,false);
   return {bpm:s.bpm,off:s.off,dur:s.dur,lev:Array.from(s.lev),vocMean:s.voc.reduce((a,b)=>a+b,0)/s.voc.length,vocOpen:Array.from(s.voc).filter(v=>v>.4).length/s.voc.length};},
-  play:()=>{playSong();return ac.state;},state:()=>({B:beatNow(),playing:songPlaying,ac:ac&&ac.state}),auto:async url=>{const im=new Image();im.src=url;await im.decode();const ok=await autoFace(im);
+  play:()=>{playSong();return ac.state;},info:()=>song&&{bpm:song.bpm,off:song.off,dur:song.dur,lev:Array.from(song.lev)},state:()=>({B:beatNow(),playing:songPlaying,ac:ac&&ac.state}),auto:async url=>{const im=new Image();im.src=url;await im.decode();const ok=await autoFace(im);
   return ok?{img:face3d.cv.toDataURL('image/jpeg',.85),q:Array.from(face3d.q,x=>Math.round(x*1e4)/1e4)}:null;}};
 frame();
 })();
