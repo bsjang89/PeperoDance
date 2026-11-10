@@ -4,6 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>빼빼로 댄스</title>
+<meta property="og:type" content="website">
+<meta property="og:title" content="해피 빼빼로데이! 춤추는 빼빼로가 도착했어요">
+<meta property="og:description" content="눌러서 확인해 보세요. 소리를 켜면 더 재밌어요!">
+<meta property="og:image" content="https://bsjang89.github.io/PeperoDance/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
 <link href="https://fonts.googleapis.com/css2?family=Jua&display=swap" rel="stylesheet">
 <style>
   html,body{margin:0;height:100%;overflow:hidden;background:#8f1420;}
@@ -789,7 +796,7 @@ document.getElementById('ok').addEventListener('click',()=>{
 
 // ---------- share link (face picture stored in Supabase Storage) ----------
 const shShare=document.getElementById('shshare');
-shShare.addEventListener('click',()=>{if(shared&&navigator.share)navigator.share({title:'빼빼로 댄스',text:'내 빼빼로 댄스 보러 와!',url:shared}).catch(()=>{});});
+shShare.addEventListener('click',()=>{if(shared&&navigator.share)navigator.share({title:'해피 빼빼로데이!',text:'해피 빼빼로데이! 내가 빼빼로가 돼서 춤추고 있어. 소리 켜고 눌러 봐',url:shared}).catch(()=>{});});
 const shareBtn=document.getElementById('share'),shBox=document.getElementById('sharebox');
 const linkEl=document.getElementById('link'),shGo=document.getElementById('shgo'),shNote=document.getElementById('shnote');
 let shared=null;
